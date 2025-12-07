@@ -3,6 +3,9 @@
 #include "datastructures.hh"
 
 #include <random>
+#include <algorithm>
+#include <queue>
+#include <functional>
 
 std::minstd_rand rand_engine; // Reasonably quick pseudo-random generator
 
@@ -264,7 +267,6 @@ std::vector<BeaconID> Datastructures::path_outbeam(BeaconID id)
 
     return targets;
 }
-
 std::vector<BeaconID> Datastructures::path_inbeam_longest(BeaconID id)
 {
     // Beacon not found
@@ -512,20 +514,188 @@ std::vector<std::pair<Coord, Cost>> Datastructures::route_any(Coord fromxpoint, 
     return path;
 }
 
-std::vector<std::pair<Coord, Cost>> Datastructures::route_least_xpoints(Coord /*fromxpoint*/, Coord /*toxpoint*/)
+// Since I implement BFS in previous function, this one is almost the same
+std::vector<std::pair<Coord, Cost>> Datastructures::route_least_xpoints(Coord fromxpoint, Coord toxpoint)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    if (fromxpoint == toxpoint) {
+        return {{fromxpoint, 0}};
+    }
+    if (fibres_.find(fromxpoint) == fibres_.end() || fibres_.find(toxpoint) == fibres_.end()) {
+        return {};
+    }
+
+    std::queue<Coord> q;
+    q.push(fromxpoint);
+
+    std::unordered_map<Coord, Coord, CoordHash> came_from;
+    std::unordered_map<Coord, Cost, CoordHash> cost_so_far;
+
+    came_from[fromxpoint] = fromxpoint;
+    cost_so_far[fromxpoint] = 0;
+
+    bool found = false;
+
+    while (!q.empty()) {
+        Coord current = q.front();
+        q.pop();
+
+        if (current == toxpoint) {
+            found = true;
+            break;
+        }
+
+        for (const auto& edge : fibres_[current]) {
+            Coord neighbor = edge.first;
+            Cost edge_cost = edge.second;
+
+            if (came_from.find(neighbor) == came_from.end()) {
+                came_from[neighbor] = current;
+                cost_so_far[neighbor] = cost_so_far[current] + edge_cost;
+                q.push(neighbor);
+            }
+        }
+    }
+
+    if (!found) return {};
+
+    std::vector<std::pair<Coord, Cost>> path;
+    Coord curr = toxpoint;
+
+    while (curr != fromxpoint) {
+        path.push_back({curr, cost_so_far[curr]});
+        curr = came_from[curr];
+    }
+    path.push_back({fromxpoint, 0});
+    std::reverse(path.begin(), path.end());
+
+    return path;
 }
 
-std::vector<std::pair<Coord, Cost>> Datastructures::route_fastest(Coord /*fromxpoint*/, Coord /*toxpoint*/)
+std::vector<std::pair<Coord, Cost>> Datastructures::route_fastest(Coord fromxpoint, Coord toxpoint)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    // Some basic Checks
+    if (fromxpoint == toxpoint) return {{fromxpoint, 0}};
+    if (fibres_.find(fromxpoint) == fibres_.end() || fibres_.find(toxpoint) == fibres_.end()) return {};
+
+    // Ordered so the smallest cost is always on top
+    std::priority_queue<std::pair<Cost, Coord>, std::vector<std::pair<Cost, Coord>>, std::greater<std::pair<Cost, Coord>>> pq;
+
+    // Stores the cheapest cost found so far to get to a node
+    std::unordered_map<Coord, Cost, CoordHash> dist;
+
+    // Reconstruct the path
+    std::unordered_map<Coord, Coord, CoordHash> came_from;
+
+    // Initialize Start
+    dist[fromxpoint] = 0;
+    pq.push({0, fromxpoint}); // Cost 0 to start
+
+    // Run Dijkstra
+    while (!pq.empty()) {
+        // Get the node with the lowest cost
+        Cost current_cost = pq.top().first;
+        Coord current = pq.top().second;
+        pq.pop();
+
+        // If we found a shorter way to 'current' before processing this item, skip it.
+        if (dist.count(current) && current_cost > dist[current]) {
+            continue;
+        }
+
+        // Found the target
+        if (current == toxpoint) {
+            break;
+        }
+
+        // Check Neighbors
+        for (const auto& edge : fibres_[current]) {
+            Coord neighbor = edge.first;
+            Cost edge_weight = edge.second;
+
+            Cost new_cost = current_cost + edge_weight;
+
+            // If we found a faster way to the neighbor, update it
+            if (dist.find(neighbor) == dist.end() || new_cost < dist[neighbor]) {
+                dist[neighbor] = new_cost;
+                came_from[neighbor] = current;
+                pq.push({new_cost, neighbor});
+            }
+        }
+    }
+
+    // Target never reached
+    if (came_from.find(toxpoint) == came_from.end()) {
+        return {};
+    }
+
+    std::vector<std::pair<Coord, Cost>> path;
+    Coord curr = toxpoint;
+
+    while (curr != fromxpoint) {
+        path.push_back({curr, dist[curr]});
+        curr = came_from[curr];
+    }
+    path.push_back({fromxpoint, 0});
+    std::reverse(path.begin(), path.end());
+
+    return path;
 }
 
-std::vector<Coord> Datastructures::route_fibre_cycle(Coord /*startxpoint*/)
+std::vector<Coord> Datastructures::route_fibre_cycle(Coord startxpoint)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    // Some basic checks
+    if (fibres_.find(startxpoint) == fibres_.end()) {
+        return {};
+    }
+
+    std::unordered_map<Coord, int, CoordHash> state;
+
+    // Store the path as we explore
+    std::vector<Coord> path;
+
+    // Recursive DFS Function
+    std::function<bool(Coord, Coord)> dfs =
+        [&](Coord current, Coord parent) -> bool {
+
+        state[current] = 1; // Mark as Visiting (Grey)
+        path.push_back(current);
+
+        // Get neighbors and sort them
+        auto neighbors = fibres_[current];
+        std::sort(neighbors.begin(), neighbors.end());
+
+        for (const auto& edge : neighbors) {
+            Coord next = edge.first;
+
+            // Don't simply go back to where we just came from
+            if (next == parent) {
+                continue;
+            }
+
+            // Found a back-edge to an active node
+            if (state[next] == 1) {
+                path.push_back(next); // Add the closing node to complete the loop visualization
+                return true;
+            }
+
+            // Unvisited node, continue DFS
+            if (state[next] == 0) {
+                if (dfs(next, current)) {
+                    return true;
+                }
+            }
+        }
+
+        // If we reach here, this path didn't lead to a cycle
+        state[current] = 2; // Mark as Visited
+        path.pop_back();    // Remove from current path
+        return false;
+    };
+
+    // Start the Search
+    if (dfs(startxpoint, NO_COORD)) {
+        return path;
+    }
+
+    return {}; // No cycle found
 }
