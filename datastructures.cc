@@ -265,58 +265,251 @@ std::vector<BeaconID> Datastructures::path_outbeam(BeaconID id)
     return targets;
 }
 
-std::vector<BeaconID> Datastructures::path_inbeam_longest(BeaconID /*id*/)
+std::vector<BeaconID> Datastructures::path_inbeam_longest(BeaconID id)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    // Beacon not found
+    if (beacons_.find(id) == beacons_.end()) {
+        return {NO_BEACON};
+    }
+
+    std::vector<BeaconID> longest_chain;
+
+    // Return a vector with just id if the sources is empty
+    if (beacons_[id].sources.empty()) {
+        return {id};
+    }
+    // Recursively find the longest path
+    else {
+        for (const auto& source : beacons_[id].sources) {
+            auto longest = path_inbeam_longest(source);
+            if (longest.size() > longest_chain.size()) {
+                longest_chain = longest;
+            }
+        }
+    }
+
+    // Store the id last
+    longest_chain.push_back(id);
+    return longest_chain;
 }
 
-Color Datastructures::total_color(BeaconID /*id*/)
+Color Datastructures::total_color(BeaconID id)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    // Beacon not found
+    if (beacons_.find(id) == beacons_.end()) {
+        return NO_COLOR;
+    }
+
+    int sum_r = beacons_[id].color.r;
+    int sum_g = beacons_[id].color.g;
+    int sum_b = beacons_[id].color.b;
+    int count = 1;
+
+    if (beacons_[id].sources.empty()) {
+        return beacons_[id].color;
+    }
+    // Recursively calculate sum of all r, g, and b
+    else {
+        for (const auto& source : beacons_[id].sources) {
+            auto sum = total_color(source);
+
+            sum_r += sum.r;
+            sum_g += sum.g;
+            sum_b += sum.b;
+            count++;
+        }
+    }
+
+    // Return average
+    return Color{sum_r/count, sum_g/count, sum_b/count};
 }
 
-bool Datastructures::add_fibre(Coord /*xpoint1*/, Coord /*xpoint2*/, Cost /*cost*/)
+bool Datastructures::add_fibre(Coord xpoint1, Coord xpoint2, Cost cost)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    // Check if both points are the same
+    if (xpoint1 == xpoint2) {
+        return false;
+    }
+    // Check if there is already a fiber between the given points
+    for (const auto& pair : fibres_[xpoint1]) {
+        if (pair.first == xpoint2) {
+            return false;
+        }
+    }
+
+    // Add fiber to data structure
+    fibres_[xpoint1].push_back({xpoint2, cost});
+    fibres_[xpoint2].push_back({xpoint1, cost});
+
+    return true;
 }
 
 std::vector<Coord> Datastructures::all_xpoints()
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    std::vector<Coord> result;
+
+    // Store all points with at least one fiber
+    for (const auto& fiber : fibres_) {
+        result.push_back(fiber.first);
+    }
+
+    // Sort the list
+    std::sort(result.begin(), result.end());
+
+    return result;
 }
 
-std::vector<std::pair<Coord, Cost> > Datastructures::get_fibres_from(Coord /*xpoint*/)
+std::vector<std::pair<Coord, Cost> > Datastructures::get_fibres_from(Coord xpoint)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    auto it = fibres_.find(xpoint);
+    // Check if xpoint exist
+    if (it == fibres_.end()) {
+        return {};
+    }
+
+    std::vector<std::pair<Coord, Cost>> coord_cost = it->second;
+
+    std::sort(coord_cost.begin(), coord_cost.end());
+
+    return coord_cost;
 }
 
 std::vector<std::pair<Coord, Coord> > Datastructures::all_fibres()
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    std::vector<std::pair<Coord, Coord>> fibres;
+
+    for (const auto& fibre : fibres_) {
+        Coord start_point = fibre.first;
+
+        for (const auto& pair : fibre.second) {
+            Coord end_point = pair.first;
+
+            // Check if the first point is smaller than the end point
+            if (start_point < end_point) {
+                fibres.push_back({start_point, end_point});
+            }
+        }
+    }
+
+    std::sort(fibres.begin(), fibres.end());
+
+    return fibres;
 }
 
-bool Datastructures::remove_fibre(Coord /*xpoint1*/, Coord /*xpoint2*/)
+bool Datastructures::remove_fibre(Coord xpoint1, Coord xpoint2)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    if (fibres_.find(xpoint1) == fibres_.end() or fibres_.find(xpoint2) == fibres_.end()) {
+        return false;
+    }
+
+    auto& neighbors = fibres_[xpoint1];
+
+    auto it = std::find_if(neighbors.begin(), neighbors.end(),
+        [&] (const std::pair<Coord, Cost>& coord_cost) {
+        return coord_cost.first == xpoint2;
+    });
+
+    if (it == neighbors.end()) {
+        return false;
+    }
+
+    neighbors.erase(it);
+
+    auto& neighbors2 = fibres_[xpoint2];
+
+    auto it2 = std::find_if(neighbors2.begin(), neighbors2.end(),
+        [&] (const std::pair<Coord, Cost>& coord_cost) {
+        return coord_cost.first == xpoint1;
+    });
+
+    neighbors2.erase(it2);
+
+    return true;
 }
 
 void Datastructures::clear_fibres()
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    fibres_.clear();
 }
 
-std::vector<std::pair<Coord, Cost> > Datastructures::route_any(Coord /*fromxpoint*/, Coord /*toxpoint*/)
+std::vector<std::pair<Coord, Cost>> Datastructures::route_any(Coord fromxpoint, Coord toxpoint)
 {
-    // Replace the line below with your implementation
-    throw NotImplemented();
+    // Start and End are the same
+    if (fromxpoint == toxpoint) {
+        return {{fromxpoint, 0}};
+    }
+
+    // If one or both don't exist, return empty path
+    if (fibres_.find(fromxpoint) == fibres_.end() || fibres_.find(toxpoint) == fibres_.end()) {
+        return {};
+    }
+
+    // Data Structures for BFS
+    std::queue<Coord> q;
+    q.push(fromxpoint);
+
+    // Track where we came from to reconstruct the path later
+    // Key: Current Node, Value: Parent Node
+    std::unordered_map<Coord, Coord, CoordHash> came_from;
+
+    // Track cumulative cost to reach each node
+    std::unordered_map<Coord, Cost, CoordHash> cost_so_far;
+
+    // Initialize start point
+    came_from[fromxpoint] = fromxpoint;
+    cost_so_far[fromxpoint] = 0;
+
+    bool found = false;
+
+    // Run BFS
+    while (!q.empty()) {
+        Coord current = q.front();
+        q.pop();
+
+        // Stop if we reached the target
+        if (current == toxpoint) {
+            found = true;
+            break;
+        }
+
+        // Check all neighbors
+        for (const auto& edge : fibres_[current]) {
+            Coord neighbor = edge.first;
+            Cost edge_cost = edge.second;
+
+            // If we have not visited neighbor
+            if (came_from.find(neighbor) == came_from.end()) {
+
+                // Record the path and cost
+                came_from[neighbor] = current;
+                cost_so_far[neighbor] = cost_so_far[current] + edge_cost;
+
+                // Add to queue to explore next
+                q.push(neighbor);
+            }
+        }
+    }
+
+    // No route found
+    if (!found) {
+        return {};
+    }
+
+    std::vector<std::pair<Coord, Cost>> path;
+    Coord curr = toxpoint;
+
+    // Walk backward from End
+    while (curr != fromxpoint) {
+        path.push_back({curr, cost_so_far[curr]});
+        curr = came_from[curr];
+    }
+
+    // Add the starting point
+    path.push_back({fromxpoint, 0});
+
+    std::reverse(path.begin(), path.end());
+
+    return path;
 }
 
 std::vector<std::pair<Coord, Cost>> Datastructures::route_least_xpoints(Coord /*fromxpoint*/, Coord /*toxpoint*/)
